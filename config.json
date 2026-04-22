@@ -1,0 +1,119 @@
+{
+  "_comentario": "Archivo de configuración para EDA de elasticidad precio-demanda",
+
+  "archivos": {
+    "csv_entrada": "AR_VENTAS_SEMANAL_HISTORICO_TIMBO_20231230_20251227.csv",
+    "separador": ";",
+    "encoding": "latin-1",
+    "parquet_procesado": "output_eda/datos_procesados.parquet"
+  },
+
+  "modo": "auto",
+
+  "columnas_semanal": {
+    "periodo": "SEM_FECHA_INICIO",
+    "formato_fecha": "%Y-%m-%d",
+    "prod_codigo": "PROD_CODIGO_BARRAS"
+  },
+
+  "columnas_mensual": {
+    "periodo": "MES",
+    "formato_fecha": "%Y%m",
+    "prod_codigo": "PROD_CODIGO_BARRAS"
+  },
+
+"filtros": {
+    "max_diferencial_pct": 50
+},
+
+  "columnas_comunes": {
+    "pdv_codigo": "PDV_CODIGO",
+    "pdv_nombre": "PDV_NOMBRE",
+    "pdv_localidad": "PDV_LOCALIDAD",
+    "prod_nombre": "PROD_NOMBRE",
+    "prod_categoria": "PROD_CATEGORIA",
+    "precio_unitario": "PRECIO_UNITARIO",
+    "volumen_vta": "VOL_VTA",
+    "importe_vta": "IMP_VTA",
+    "cantidad_vta": "CANT_VTA"
+  },
+
+  "codigos_propios": [
+    "7790072001014",
+    "7791004000051",
+    "7790072179607",
+    "7791004000839",
+    "7791004000099",
+    "7791004000068",
+    "7791004000082",
+    "7790072001038",
+    "77900661",
+    "7791004000044",
+    "7790072002080",
+    "7790072179652",
+    "77956262",
+    "7790072000093",
+    "7791004000822",
+    "7790072000079",
+    "7790072000154",
+    "7790072000147",
+    "7790072000130",
+    "7791004000105",
+    "7790072000086",
+    "7790072179669",
+    "7790072179676",
+    "7790072000109",
+    "779007200101",
+    "7790072002110",
+    "77956279",
+    "7798080522170",
+    "7798080520541",
+    "7798080520077",
+    "7798080520534",
+    "7798080521265",
+    "7798080520657",
+    "7798080521531",
+    "7798080522163",
+    "7798080520084",
+    "7798080521579",
+    "7798080522101",
+    "7798080522217",
+    "7798080520589",
+    "7793433000497",
+    "7793433000480",
+    "7793433000510",
+    "7793433000442",
+    "7793433000435",
+    "7793433000459",
+    "7793433000558",
+    "7791004000037",
+    "7791004000013",
+    "7791004000020"
+  ],
+
+  "pares_comparables": [
+    {
+      "propio": "7790072001038",
+      "competencia": "7790072002080",
+      "descripcion": "SAL CELUSAL FINA CORREDIZA 500GRS Est"
+    },
+      {
+    "propio": "7790072001014",
+    "competencia": "7792900000428",
+    "descripcion": "SAL CELUSAL FINA CORREDIZA 500GRS Paq vs DOS ANCLAS (EAN 1)"
+    },
+    {
+      "propio": "7790072001014",
+      "competencia": "7792900000206",
+      "descripcion": "SAL CELUSAL FINA CORREDIZA 500GRS Paq vs DOS ANCLAS (EAN 2)"
+    }
+  ],
+
+  "clusters_precio": {
+    "bins": [-999999, -15, -10, -5, 0, 5, 10, 15, 999999],
+    "labels": ["< -15%", "-15% a -10%", "-10% a -5%", "-5% a 0%",
+               "0% a 5%", "5% a 10%", "10% a 15%", "> 15%"]
+  },
+
+  "output_dir": "output_eda"
+}
