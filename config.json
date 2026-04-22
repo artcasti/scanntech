@@ -8,7 +8,7 @@
     "parquet_procesado": "output_eda/datos_procesados.parquet"
   },
 
-  "modo": "auto",
+  "modo": "semanal",
 
   "columnas_semanal": {
     "periodo": "SEM_FECHA_INICIO",
@@ -115,5 +115,21 @@
                "0% a 5%", "5% a 10%", "10% a 15%", "> 15%"]
   },
 
-  "output_dir": "output_eda"
+  "output_dir": "output_eda",
+
+  "base_datos_referencia": {
+    "archivo": "Base finas y polietileno - analisis Elasticidad.xlsx",
+    "sheet_sal_fina": "Base sales finas",
+    "sheet_polietileno": "Base Polietileno"
+  },
+
+  "analisis_polietileno": {
+    "activo": true,
+    "sku_propio_celusal": "7790072001038",
+    "descripcion": "SAL CELUSAL vs POLIETILENO (más barato)",
+    "bins": [-999999, -80, -70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 999999],
+    "labels": ["< -80%", "-80% a -70%", "-70% a -60%", "-60% a -50%", "-50% a -40%", "-40% a -30%", "-30% a -20%", "-20% a -10%", "-10% a 0%", "0% a 10%", "10% a 20%", "> 20%"],
+    "label_cluster_sin_comp": "Sin polietileno",
+    "output_subdir": "polietileno"
+  }
 }
