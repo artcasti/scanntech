@@ -435,12 +435,23 @@ def grafico_boxplot_cluster(df, cfg, cols,
     )
     ax.axhline(50, color=COLOR_NEUT, linestyle="--", linewidth=1, label="Paridad (50%)")
 
-    # Media por banda: diamante negro sobre cada caja
-    medias = df_plot.groupby("cluster_precio", observed=True)[col_share].mean()
+    # Media y mediana por banda: diamante negro + etiquetas numéricas
+    medias   = df_plot.groupby("cluster_precio", observed=True)[col_share].mean()
+    medianas = df_plot.groupby("cluster_precio", observed=True)[col_share].median()
     for i, label in enumerate(labels_presentes):
-        if label in medias.index and not pd.isna(medias[label]):
-            ax.scatter(i, medias[label], marker="D", s=55, color="black", zorder=5,
-                       label="Media" if i == 0 else "_nolegend_")
+        if label not in medias.index or pd.isna(medias[label]):
+            continue
+        val_media   = medias[label]
+        val_mediana = medianas[label]
+        # Diamante para la media
+        ax.scatter(i, val_media, marker="D", s=55, color="black", zorder=5,
+                   label="Media" if i == 0 else "_nolegend_")
+        # Valor de la media encima del diamante
+        ax.text(i, val_media + 1.8, f"x̄ {val_media:.1f}%",
+                ha="center", va="bottom", fontsize=8, fontweight="bold", color="black", zorder=6)
+        # Valor de la mediana a la derecha de la línea central
+        ax.text(i + 0.42, val_mediana, f"Md {val_mediana:.1f}%",
+                ha="left", va="center", fontsize=7.5, color="#444444", style="italic", zorder=6)
 
     # Estadísticas por banda: N PDVs únicos, Vol total, min-max share
     stats_banda = (
@@ -718,6 +729,98 @@ def grafico_ranking_sensibilidad(df, cfg, top_n=15):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CONCLUSIONES POR PAR COMPARABLE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generar_conclusiones(df, cfg, cols):
+    """
+    Imprime (y guarda en el log) una conclusión estructurada por par comparable.
+    Para cada par calcula: correlación de Pearson, regresión OLS, share medio
+    por cluster y una narrativa interpretativa.
+    """
+    labels = cfg["clusters_precio"]["labels"]
+
+    print(f"\n{'='*60}")
+    print("  CONCLUSIONES POR PAR COMPARABLE")
+    print(f"{'='*60}")
+
+    for desc, grupo in df.groupby("descripcion"):
+        g = grupo.dropna(subset=["dif_precio_pct", "share_volumen"])
+        if len(g) < 5:
+            print(f"\n  ⚠️  [{desc}] Sin datos suficientes para conclusión (N={len(g)})")
+            continue
+
+        print(f"\n{'─'*60}")
+        print(f"  📊 PAR: {desc}")
+        print(f"  Observaciones: {len(g):,} combinaciones período × PDV")
+
+        # ── Correlación de Pearson: r = Cov(dif,share) / (σ_dif × σ_share)
+        r, p_val = stats.pearsonr(g["dif_precio_pct"], g["share_volumen"])
+        fuerza = "FUERTE" if abs(r) > 0.5 else "MODERADA" if abs(r) > 0.3 else "DÉBIL"
+        sig    = "** (p<0.01)" if p_val < 0.01 else ("* (p<0.05)" if p_val < 0.05 else "(no significativa)")
+        print(f"\n  Correlación precio–share:   r = {r:+.3f}  {sig}  → {fuerza}")
+
+        # ── Regresión OLS: share = m × dif_precio + b
+        X = g["dif_precio_pct"].values.reshape(-1, 1)
+        y = g["share_volumen"].values
+        reg = LinearRegression().fit(X, y)
+        m, b, r2 = reg.coef_[0], reg.intercept_, reg.score(X, y)
+        print(f"  Regresión OLS:              share = {m:+.3f} × dif_precio + {b:.1f}%  (R² = {r2:.3f})")
+        print(f"  Lectura:                    por cada 1% de diferencial el share varía {m:+.2f} pp")
+
+        # ── Share medio por cluster (con barra visual)
+        resumen = (
+            g.groupby("cluster_precio", observed=True)["share_volumen"]
+            .agg(media="mean", mediana="median", n="count")
+            .reindex(labels)
+            .dropna(subset=["media"])
+        )
+        if not resumen.empty:
+            max_media = resumen["media"].max()
+            print(f"\n  Share de Celusal por cluster (x̄ = media  |  Md = mediana):")
+            for lbl, row in resumen.iterrows():
+                barra = "█" * max(1, int(row["media"] / max_media * 22))
+                print(f"    {str(lbl):<18} {barra:<23} x̄={row['media']:>5.1f}%  Md={row['mediana']:>5.1f}%  N={int(row['n']):,}")
+
+            share_min = resumen["media"].min()
+            share_max = resumen["media"].max()
+            cluster_min = resumen["media"].idxmin()
+            cluster_max = resumen["media"].idxmax()
+            variacion = share_max - share_min
+            print(f"\n  Rango entre extremos:       {share_min:.1f}% ('{cluster_min}') → {share_max:.1f}% ('{cluster_max}')")
+            print(f"  Variación total:            {variacion:.1f} puntos porcentuales")
+
+        # ── Share vs total sal fina (si está disponible)
+        if "share_vs_total" in g.columns:
+            share_total_global = g["share_vs_total"].mean()
+            print(f"  Share vs total sal fina:    x̄ global = {share_total_global:.1f}%")
+
+        # ── Conclusión narrativa
+        competidor = desc.split(" vs ")[-1] if " vs " in desc else "el competidor"
+        if abs(r) > 0.5:
+            sensibilidad = "MUY sensible al precio"
+        elif abs(r) > 0.3:
+            sensibilidad = "MODERADAMENTE sensible al precio"
+        else:
+            sensibilidad = "POCO sensible al precio"
+
+        direccion = "pierde share cuando sube su precio relativo" if r < 0 \
+                    else "gana share cuando sube su precio relativo (comportamiento premium)"
+
+        print(f"\n  ▶ Conclusión:")
+        print(f"    Celusal es {sensibilidad} vs {competidor}.")
+        print(f"    El producto {direccion}.")
+        if not resumen.empty and variacion > 0:
+            print(f"    El share varía {variacion:.1f} pp entre los extremos de precio analizados.")
+        if not sig.startswith("("):
+            print(f"    La correlación es estadísticamente significativa {sig}.")
+        else:
+            print(f"    ⚠️  La correlación NO es estadísticamente significativa — tomar con cautela.")
+
+    print(f"\n{'─'*60}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # EXPORT EXCEL
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -980,6 +1083,7 @@ def _main(cfg):
     # Construir dataset de comparación (pares propio vs competencia)
     df_comp, cols = construir_comparacion(df, cfg, vol_total_sal=vol_total_sal)
     analisis_estadistico(df_comp, cols)
+    generar_conclusiones(df_comp, cfg, cols)
 
     print(f"\n{'='*60}")
     print("  GENERANDO GRÁFICOS — ANÁLISIS BASE (vs par comparable)")
