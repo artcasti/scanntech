@@ -282,6 +282,19 @@ def construir_comparacion(df, cfg, vol_total_sal=None):
         np.nan
     ).round(4)
 
+    # Validación: share_volumen debe estar en [0%, 100%]; fuera de ese rango indica datos sucios
+    invalidos = resultado["share_volumen"].notna() & (
+        (resultado["share_volumen"] < 0) | (resultado["share_volumen"] > 100)
+    )
+    if invalidos.any():
+        n_inv = invalidos.sum()
+        print(f"\n  ⚠️  DATOS SUCIOS: {n_inv:,} registro(s) con share fuera de [0%, 100%]")
+        print(f"     Causa probable: vol_propio o vol_comp negativos/erróneos en el CSV fuente")
+        cols_diag = ["descripcion", COL_PERIODO, COL_PDV, "vol_propio", "vol_comp", "share_volumen"]
+        cols_diag_ok = [c for c in cols_diag if c in resultado.columns]
+        print(resultado[invalidos][cols_diag_ok].head(10).to_string(index=False))
+        resultado.loc[invalidos, "dato_sucio"] = True
+
     # Share vs total sal fina: vol_propio / vol_total_sal × 100
     if vol_total_sal is not None and not vol_total_sal.empty:
         resultado = resultado.merge(vol_total_sal, on=[COL_PERIODO, COL_PDV], how="left")
@@ -421,6 +434,13 @@ def grafico_boxplot_cluster(df, cfg, cols,
         linewidth=1.2, flierprops=dict(marker=".", alpha=0.3, markersize=3)
     )
     ax.axhline(50, color=COLOR_NEUT, linestyle="--", linewidth=1, label="Paridad (50%)")
+
+    # Media por banda: diamante negro sobre cada caja
+    medias = df_plot.groupby("cluster_precio", observed=True)[col_share].mean()
+    for i, label in enumerate(labels_presentes):
+        if label in medias.index and not pd.isna(medias[label]):
+            ax.scatter(i, medias[label], marker="D", s=55, color="black", zorder=5,
+                       label="Media" if i == 0 else "_nolegend_")
 
     # Estadísticas por banda: N PDVs únicos, Vol total, min-max share
     stats_banda = (
@@ -648,40 +668,51 @@ def grafico_serie_temporal(df, cfg, cols,
 
 
 def grafico_ranking_sensibilidad(df, cfg, top_n=15):
+    """
+    Correlación de Pearson r = Cov(dif_precio, share) / (σ_dif × σ_share) por par comparable.
+    r negativo → precio más alto que competencia se asocia con menor share (sensibilidad normal).
+    r positivo → precio más alto se asocia con mayor share (producto premium/fidelización).
+    """
     resultados = []
-    for cod, grupo in df.groupby("cod_propio"):
+    for desc, grupo in df.groupby("descripcion"):
         g = grupo.dropna(subset=["dif_precio_pct", "share_volumen"])
-        if len(g) < 8:
+        if len(g) < 5:
             continue
-        r, _ = stats.pearsonr(g["dif_precio_pct"], g["share_volumen"])
-        desc = g["descripcion"].iloc[0]
-        resultados.append({"producto": desc[:45], "correlacion": r, "n_obs": len(g)})
+        r, p_val = stats.pearsonr(g["dif_precio_pct"], g["share_volumen"])
+        resultados.append({"par": desc, "correlacion": r, "p_value": p_val, "n_obs": len(g)})
 
     if not resultados:
-        print("  ⚠️  Ranking omitido (menos de 8 observaciones por producto)")
+        print("  ⚠️  Ranking omitido (menos de 5 observaciones por par comparable)")
         return
 
     rank_df = pd.DataFrame(resultados).sort_values("correlacion")
 
-    fig, ax = plt.subplots(figsize=(11, max(5, len(rank_df) * 0.5 + 2)))
+    alto = max(5, len(rank_df) * 1.2 + 2)
+    fig, ax = plt.subplots(figsize=(13, alto))
     colors = [COLOR_COMP if r < 0 else COLOR_PROPIO for r in rank_df["correlacion"]]
-    bars = ax.barh(rank_df["producto"], rank_df["correlacion"], color=colors, edgecolor="white", height=0.6)
+    bars = ax.barh(rank_df["par"], rank_df["correlacion"],
+                   color=colors, edgecolor="white", height=0.5)
     ax.axvline(0, color="black", linewidth=0.8)
 
-    for bar, val in zip(bars, rank_df["correlacion"]):
-        offset = 0.01 if val >= 0 else -0.01
-        ha = "left" if val >= 0 else "right"
-        ax.text(val + offset, bar.get_y() + bar.get_height()/2,
-                f"{val:.2f}", va="center", ha=ha, fontsize=8)
+    for bar, row in zip(bars, rank_df.itertuples()):
+        offset = 0.005 if row.correlacion >= 0 else -0.005
+        ha = "left" if row.correlacion >= 0 else "right"
+        sig = "**" if row.p_value < 0.01 else ("*" if row.p_value < 0.05 else "")
+        ax.text(row.correlacion + offset, bar.get_y() + bar.get_height() / 2,
+                f"r={row.correlacion:.2f}{sig}  (N={row.n_obs:,})",
+                va="center", ha=ha, fontsize=8.5)
 
-    ax.set_xlabel("Correlación (diferencial precio % → share volumen)")
-    ax.set_title("Sensibilidad al precio por producto comparable")
+    ax.set_xlabel("Correlación de Pearson r  (diferencial precio % → share volumen)")
+    ax.set_title("Sensibilidad al precio por par comparable\n"
+                 "* p<0.05   ** p<0.01   (r negativo = mayor precio → menor share)")
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor=COLOR_COMP,   label="Precio más alto → pierde share"),
-        Patch(facecolor=COLOR_PROPIO, label="Precio más alto → gana share"),
+        Patch(facecolor=COLOR_COMP,   label="Precio más alto → pierde share (r < 0)"),
+        Patch(facecolor=COLOR_PROPIO, label="Precio más alto → gana share  (r > 0)"),
     ]
     ax.legend(handles=legend_elements, fontsize=9)
+    ax.set_xlim(min(rank_df["correlacion"].min() - 0.08, -0.05),
+                max(rank_df["correlacion"].max() + 0.08, 0.05))
     fig.tight_layout()
     guardar(fig, "5_ranking_sensibilidad.png", cfg["output_dir"])
 
