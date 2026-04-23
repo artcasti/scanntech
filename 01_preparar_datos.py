@@ -23,6 +23,31 @@ import argparse
 import os
 import sys
 import time
+from datetime import datetime
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGER (duplica stdout al archivo de resumen)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TeeLogger:
+    """Escribe cada print() tanto en la terminal como en un archivo de texto."""
+    def __init__(self, filepath):
+        self._terminal = sys.stdout
+        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+        self._file = open(filepath, "w", encoding="utf-8")
+
+    def write(self, msg):
+        self._terminal.write(msg)
+        self._file.write(msg)
+
+    def flush(self):
+        self._terminal.flush()
+        self._file.flush()
+
+    def close(self):
+        sys.stdout = self._terminal
+        self._file.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,21 +130,45 @@ def detectar_modo(df, cfg):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def cargar_csv(cfg):
-    archivo  = cfg["archivos"]["csv_entrada"]
+    """
+    Carga uno o varios archivos CSV y los consolida en un único DataFrame.
+    'csv_entrada' en config puede ser un string o una lista de strings.
+    Cuando se proveen varios archivos (acumulativos), se eliminan filas duplicadas
+    exactas para evitar contar el mismo registro más de una vez.
+    """
+    entrada  = cfg["archivos"]["csv_entrada"]
     sep      = cfg["archivos"]["separador"]
     encoding = cfg["archivos"]["encoding"]
 
-    if not os.path.exists(archivo):
-        print(f"❌ No se encontró el archivo CSV: {archivo}")
-        sys.exit(1)
+    archivos = [entrada] if isinstance(entrada, str) else list(entrada)
 
-    print(f"📂 Leyendo: {archivo}")
+    frames = []
+    for archivo in archivos:
+        if not os.path.exists(archivo):
+            print(f"❌ No se encontró el archivo CSV: {archivo}")
+            sys.exit(1)
+        print(f"📂 Leyendo: {archivo}")
+        t0 = time.time()
+        df_part = pd.read_csv(archivo, sep=sep, encoding=encoding, low_memory=False)
+        df_part.columns = df_part.columns.str.strip()
+        elapsed = time.time() - t0
+        print(f"   → {len(df_part):,} filas | {df_part.shape[1]} columnas | {elapsed:.1f}s")
+        frames.append(df_part)
+
+    if len(frames) == 1:
+        return frames[0]
+
+    # Consolidar varios archivos acumulativos y deduplicar
+    print(f"\n🔗 Consolidando {len(archivos)} archivos...")
+    n_antes = sum(len(f) for f in frames)
     t0 = time.time()
-    df = pd.read_csv(archivo, sep=sep, encoding=encoding, low_memory=False)
-    df.columns = df.columns.str.strip()
+    df = pd.concat(frames, ignore_index=True)
+    df = df.drop_duplicates()
     elapsed = time.time() - t0
-
-    print(f"   → {len(df):,} filas | {df.shape[1]} columnas | {elapsed:.1f}s")
+    n_dup = n_antes - len(df)
+    print(f"   → Filas totales antes de deduplicar : {n_antes:,}")
+    print(f"   → Duplicados eliminados              : {n_dup:,}")
+    print(f"   → Filas únicas resultantes           : {len(df):,} | {elapsed:.1f}s")
     return df
 
 
@@ -291,24 +340,35 @@ def main():
 
     os.makedirs(cfg["output_dir"], exist_ok=True)
 
-    print("\n" + "="*60)
-    print("  PASO 1 — PREPARACIÓN DE DATOS")
-    print("="*60)
+    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = os.path.join(cfg["output_dir"], f"resumen_ejecucion_paso1_{ts}.txt")
+    logger   = TeeLogger(log_path)
+    sys.stdout = logger
 
-    df       = cargar_csv(cfg)
-    columnas = detectar_modo(df, cfg)       # ← detecta semanal/mensual automáticamente
-    df       = parsear_periodo(df, columnas)
-    df       = clasificar_origen(df, cfg, columnas)
+    try:
+        print("\n" + "="*60)
+        print("  PASO 1 — PREPARACIÓN DE DATOS")
+        print(f"  Fecha/hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("="*60)
 
-    reporte_calidad(df, columnas)
-    validar_pares_comparables(df, cfg, columnas)
+        df       = cargar_csv(cfg)
+        columnas = detectar_modo(df, cfg)
+        df       = parsear_periodo(df, columnas)
+        df       = clasificar_origen(df, cfg, columnas)
 
-    exportar_parquet(df, cfg)
+        reporte_calidad(df, columnas)
+        validar_pares_comparables(df, cfg, columnas)
 
-    print("\n" + "="*60)
-    print("  ✅ Preparación completa.")
-    print(f"  Próximo paso: python 02_eda_elasticidad.py")
-    print("="*60 + "\n")
+        exportar_parquet(df, cfg)
+
+        print("\n" + "="*60)
+        print("  ✅ Preparación completa.")
+        print(f"  Próximo paso: python 02_eda_elasticidad.py")
+        print("="*60 + "\n")
+    finally:
+        logger.close()
+
+    print(f"📄 Resumen guardado en: {log_path}")
 
 
 if __name__ == "__main__":

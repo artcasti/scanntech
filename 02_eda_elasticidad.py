@@ -31,8 +31,33 @@ import argparse
 import os
 import sys
 import warnings
+from datetime import datetime
 
 warnings.filterwarnings("ignore")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGER (duplica stdout al archivo de resumen)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TeeLogger:
+    """Escribe cada print() tanto en la terminal como en un archivo de texto."""
+    def __init__(self, filepath):
+        self._terminal = sys.stdout
+        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+        self._file = open(filepath, "w", encoding="utf-8")
+
+    def write(self, msg):
+        self._terminal.write(msg)
+        self._file.write(msg)
+
+    def flush(self):
+        self._terminal.flush()
+        self._file.flush()
+
+    def close(self):
+        sys.stdout = self._terminal
+        self._file.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -886,8 +911,23 @@ def main():
     cfg  = cargar_config(args.config)
     os.makedirs(cfg["output_dir"], exist_ok=True)
 
+    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = os.path.join(cfg["output_dir"], f"resumen_ejecucion_paso2_{ts}.txt")
+    logger   = TeeLogger(log_path)
+    sys.stdout = logger
+
+    try:
+        _main(cfg)
+    finally:
+        logger.close()
+
+    print(f"📄 Resumen guardado en: {log_path}")
+
+
+def _main(cfg):
     print("\n" + "="*60)
     print("  PASO 2 — EDA DE ELASTICIDAD PRECIO VS COMPETENCIA")
+    print(f"  Fecha/hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
 
     df = cargar_datos(cfg)
