@@ -4,7 +4,7 @@
   "archivos": {
     "csv_entrada": [
       "AR_VENTAS_SEMANAL_HISTORICO_TIMBO_20231230_20251227.csv",
-      "AR_VENTAS_SEMANAL_TIMBO_20260330.csv"
+      "AR_VENTAS_SEMANAL_HISTORICO_TIMBO_20260103_20260321.csv"
     ],
     "separador": ";",
     "encoding": "latin-1",

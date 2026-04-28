@@ -821,6 +821,136 @@ def generar_conclusiones(df, cfg, cols):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GUÍA DE LECTURA ESTADÍSTICA
+# ─────────────────────────────────────────────────────────────────────────────
+
+def imprimir_guia_estadistica():
+    """
+    Imprime al final del log una guía de lectura de los indicadores estadísticos.
+    Sirve como referencia permanente para interpretar correctamente los resultados.
+    """
+    guia = """
+================================================================================
+  GUÍA DE LECTURA — FUNDAMENTOS MATEMÁTICOS Y ESTADÍSTICOS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 1. CORRELACIÓN DE PEARSON  (r)                                          │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Fórmula:  r = Cov(dif_precio, share) / (σ_dif × σ_share)
+
+  Rango: −1 a +1
+    r = −1  →  relación lineal perfecta inversa (sube precio, baja share)
+    r =  0  →  sin relación lineal
+    r = +1  →  relación lineal perfecta directa
+
+  Referencia de magnitud:
+    |r| > 0.50  →  FUERTE      (el precio explica bien el share)
+    |r| 0.30–0.50  →  MODERADA
+    |r| < 0.30  →  DÉBIL       (otros factores dominan)
+
+  Advertencia: r solo captura relaciones lineales. Si el efecto del precio
+  fuera en escalón (cae el share solo al superar un umbral), r lo subestimaría.
+  El boxplot por cluster captura esa no-linealidad y es más robusto.
+
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 2. REGRESIÓN OLS  (share = m × dif_precio + b)                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Cómo se calcula m (pendiente):
+    m = Cov(dif_precio, share) / Var(dif_precio)
+      = Σ[(dif_i − dif̄)(share_i − sharē)] / Σ[(dif_i − dif̄)²]
+
+  Minimiza la suma de errores al cuadrado: Σ(share_real − share_predicho)²
+
+  b (intercepto) = sharē − m × dif̄
+    → share esperado cuando el diferencial es exactamente 0 (precios iguales)
+
+  Lectura práctica de m:
+    Si m = −0.30, un movimiento de 10 pp en el diferencial (ej. de −5% a +5%)
+    se asocia con un cambio de −0.30 × 10 = −3 pp en el share esperado.
+
+  R² (bondad de ajuste):
+    Proporción de la varianza del share que explica el diferencial de precio.
+    R² = 0.09 → 9% explicado por el precio; 91% por otros factores
+    (tamaño del PDV, hábitos, otras marcas, promociones, estacionalidad).
+    R² bajo es normal en mercados de consumo masivo.
+
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 3. P-VALUE Y SIGNIFICANCIA ESTADÍSTICA                                  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  El p-value responde: si no hubiera ninguna relación real entre precio y share,
+  ¿cuál sería la probabilidad de ver una correlación igual o mayor por azar?
+
+    p < 0.01  (**)  →  menos del 1% de probabilidad de que sea azar
+    p < 0.05  (*)   →  menos del 5%
+    p ≥ 0.05        →  no se puede descartar el azar con confianza
+
+  ⚠️  ADVERTENCIA CRÍTICA — N grande distorsiona el p-value:
+  Con miles de observaciones, casi cualquier correlación distinta de cero
+  resulta "significativa". El ** no indica que el efecto sea grande ni
+  importante para el negocio; solo confirma que existe.
+  El número relevante para decidir es r (o m), no el p-value.
+
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 4. LIMITACIÓN PRINCIPAL — INDEPENDENCIA DE OBSERVACIONES               │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OLS asume que cada observación es independiente. En este dataset no se cumple:
+
+  · El mismo PDV aparece en múltiples semanas → sus datos están correlacionados
+    (un PDV que vende bien en enero probablemente también lo hace en febrero).
+  · La misma semana aparece en múltiples PDVs → efectos comunes por período
+    (una promoción nacional afecta a todos los puntos ese mes).
+
+  Consecuencia: los p-values son demasiado optimistas (subestiman la
+  incertidumbre). Los coeficientes m y r son estimaciones válidas de
+  dirección y magnitud, pero la precisión reportada es mayor de la real.
+
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 5. QUÉ CONFIAR Y QUÉ TOMAR CON CAUTELA                                 │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ALTA confianza:
+  · Dirección de r (negativo = más caro → menos share): robusto
+  · Share medio y mediana por cluster (boxplot): estadística descriptiva pura,
+    sin supuestos. Es el resultado más sólido para presentar al cliente.
+
+  MEDIA confianza:
+  · Magnitud de r y pendiente m: válidos como orientación, no como predicción
+    precisa.
+
+  BAJA confianza:
+  · P-values exactos: sobreestimados por la correlación temporal y espacial
+    de los datos.
+
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 6. CÓMO LEER LOS RESULTADOS EN LA PRÁCTICA                             │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  La conclusión más robusta para presentar al cliente es la del boxplot:
+    "Cuando Celusal está >15% más barato, la mediana de share es X%;
+     cuando está >15% más caro, baja a Y%. Son Z puntos porcentuales de
+     diferencia observada en los datos reales, sin supuesto alguno."
+
+  La regresión y la correlación complementan ese mensaje:
+    "La relación existe, va en la dirección esperada y es estadísticamente
+     significativa, aunque el precio explica solo el R²% de la variación
+     total del share."
+
+================================================================================
+"""
+    print(guia)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # EXPORT EXCEL
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1121,6 +1251,8 @@ def _main(cfg):
     # Análisis vs polietileno
     if skus_poli is not None and cfg.get("analisis_polietileno", {}).get("activo", False):
         analisis_polietileno(df, skus_poli, vol_total_sal, cfg, cols)
+
+    imprimir_guia_estadistica()
 
     print(f"\n✅ Análisis completo. Archivos en: ./{cfg['output_dir']}/\n")
 
