@@ -44,11 +44,19 @@ class TeeLogger:
     """Escribe cada print() tanto en la terminal como en un archivo de texto."""
     def __init__(self, filepath):
         self._terminal = sys.stdout
+        # Forzar UTF-8 en la terminal para soportar emojis y acentos en Windows
+        try:
+            self._terminal.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
         os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
         self._file = open(filepath, "w", encoding="utf-8")
 
     def write(self, msg):
-        self._terminal.write(msg)
+        try:
+            self._terminal.write(msg)
+        except UnicodeEncodeError:
+            self._terminal.write(msg.encode("ascii", "replace").decode("ascii"))
         self._file.write(msg)
 
     def flush(self):
@@ -1011,14 +1019,18 @@ def exportar_excel(df, cfg, cols, filename="resumen_elasticidad.xlsx"):
 
 def analisis_polietileno(df, skus_poli, vol_total_sal, cfg, cols):
     """
-    Analiza Celusal vs. el SKU de polietileno más barato en cada PDV-período.
+    Analiza Celusal paquetito vs. el SKU de polietileno más barato en cada PDV-período.
 
     Fórmulas:
-      precio_poli_min = MIN(precio_ponderado_vol) por SKU de polietileno en PDV-período
-      dif_precio_pct  = (precio_celusal − precio_poli_min) / precio_poli_min × 100
-      share_volumen   = vol_celusal / vol_total_sal_fina × 100
+      precio_poli_min       = MIN(precio_ponderado_vol) por SKU polietileno en PDV-período
+      vol_total_polietileno = Σ vol de TODOS los SKUs de polietileno en PDV-período
+                              (incluye Rinsal aunque sea marca propia, se considera competidor)
+      dif_precio_pct        = (precio_celusal − precio_poli_min) / precio_poli_min × 100
+      share_volumen         = vol_celusal_paquetito / vol_total_polietileno × 100
 
     PDV-períodos sin polietileno → cluster "Sin polietileno".
+    Filtro de outliers: usa max_diferencial_pct del bloque analisis_polietileno
+    si está definido, si no cae al global de filtros.
     """
     cfg_poli = cfg.get("analisis_polietileno", {})
     if not cfg_poli.get("activo", False):
@@ -1055,9 +1067,8 @@ def analisis_polietileno(df, skus_poli, vol_total_sal, cfg, cols):
         })
     ).reset_index()
 
-    # 2. Precio mínimo de polietileno por (período, PDV)
-    # Paso a: precio ponderado por SKU × período × PDV
-    # Paso b: mínimo de esos precios por período × PDV
+    # 2. Precio mínimo y volumen total de polietileno por (período, PDV)
+    # Rinsal (marca propia Celusal) entra como competidor en este análisis.
     skus_poli_set = set(skus_poli.astype(str).str.strip())
     df_poli_filt = df[df[COL_CODIGO].astype(str).str.strip().isin(skus_poli_set)]
 
@@ -1073,12 +1084,22 @@ def analisis_polietileno(df, skus_poli, vol_total_sal, cfg, cols):
             .rename("precio_poli_min")
             .reset_index()
         )
+
+        vol_total_poli = (
+            df_poli_filt
+            .groupby([COL_PERIODO, COL_PDV])[COL_VOL]
+            .sum()
+            .rename("vol_total_poli")
+            .reset_index()
+        )
     else:
         print("  ⚠️  No se encontraron SKUs de polietileno en los datos")
-        min_poli = pd.DataFrame(columns=[COL_PERIODO, COL_PDV, "precio_poli_min"])
+        min_poli       = pd.DataFrame(columns=[COL_PERIODO, COL_PDV, "precio_poli_min"])
+        vol_total_poli = pd.DataFrame(columns=[COL_PERIODO, COL_PDV, "vol_total_poli"])
 
-    # 3. Join Celusal + precio mínimo polietileno (left join)
+    # 3. Join Celusal + precio mínimo polietileno + vol total polietileno (left join)
     resultado = agg_cel.merge(min_poli, on=[COL_PERIODO, COL_PDV], how="left")
+    resultado = resultado.merge(vol_total_poli, on=[COL_PERIODO, COL_PDV], how="left")
 
     # 4. Diferencial de precio (solo donde hay polietileno)
     mask_poli = resultado["precio_poli_min"].notna() & (resultado["precio_poli_min"] > 0)
@@ -1101,26 +1122,30 @@ def analisis_polietileno(df, skus_poli, vol_total_sal, cfg, cols):
         )
         resultado.loc[mask_dif, "cluster_precio"] = cut.astype(str)
 
-    # 6. Share vs total sal fina
-    if vol_total_sal is not None and not vol_total_sal.empty:
-        resultado = resultado.merge(vol_total_sal, on=[COL_PERIODO, COL_PDV], how="left")
-        resultado["share_volumen"] = np.where(
-            resultado["vol_total_sal"] > 0,
-            resultado["vol_propio"] / resultado["vol_total_sal"] * 100,
-            np.nan
-        ).round(4)
-    else:
-        resultado["share_volumen"] = np.nan
+    # 6. Share dentro del segmento polietileno
+    # numerador   = vol del paquetito Celusal
+    # denominador = vol_paquetito + vol_de_los_polietilenos_competidores
+    # (el paquetito no está en la lista del Excel, así que se suma explícito)
+    vol_poli = resultado["vol_total_poli"].fillna(0)
+    denom = resultado["vol_propio"].fillna(0) + vol_poli
+    resultado["share_volumen"] = np.where(
+        denom > 0,
+        resultado["vol_propio"] / denom * 100,
+        np.nan
+    ).round(4)
 
     resultado["cod_propio"]  = sku_celusal
     resultado["descripcion"] = desc_anal
 
-    # Filtro de outliers (solo para registros con polietileno)
-    max_dif = cfg.get("filtros", {}).get("max_diferencial_pct", None)
+    # Filtro de outliers (override del bloque polietileno > global)
+    max_dif = cfg_poli.get("max_diferencial_pct",
+                            cfg.get("filtros", {}).get("max_diferencial_pct", None))
     if max_dif is not None and mask_dif.sum() > 0:
         mask_ok  = resultado["dif_precio_pct"].abs() <= max_dif
         mask_nan = resultado["dif_precio_pct"].isna()
+        n_antes  = len(resultado)
         resultado = resultado[mask_ok | mask_nan]
+        print(f"  🔧 Filtro |dif| ≤ {max_dif}% aplicado: {n_antes - len(resultado):,} outliers descartados")
 
     n_con = resultado["dif_precio_pct"].notna().sum()
     n_sin = resultado["dif_precio_pct"].isna().sum()
@@ -1140,14 +1165,14 @@ def analisis_polietileno(df, skus_poli, vol_total_sal, cfg, cols):
     set_estilo()
     grafico_boxplot_cluster(
         resultado, cfg_graf, cols,
-        titulo=f"Share vs total sal fina — {desc_anal}",
+        titulo=f"Share dentro del segmento polietileno — {desc_anal}",
         filename="1_boxplot_share_cluster.png",
         labels=labels_full,
         col_share="share_volumen",
     )
     grafico_scatter(
         resultado, cfg_graf,
-        titulo=f"Diferencial de precio vs share — {desc_anal}",
+        titulo=f"Diferencial de precio vs share polietileno — {desc_anal}",
         filename="3_scatter_precio_share.png",
         col_share="share_volumen",
     )

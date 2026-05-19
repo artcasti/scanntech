@@ -96,19 +96,19 @@
 
   "pares_comparables": [
     {
-      "propio": "7790072001038",
-      "competencia": "7790072002080",
-      "descripcion": "SAL CELUSAL FINA CORREDIZA 500GRS Est"
+      "propio": "7790072002080",
+      "competencia": "7792900000138",
+      "descripcion": "CELUSAL FINA 500GRS Estuche"
     },
       {
     "propio": "7790072001014",
     "competencia": "7792900000428",
-    "descripcion": "SAL CELUSAL FINA CORREDIZA 500GRS Paq vs DOS ANCLAS (EAN 1)"
+    "descripcion": "CELUSAL FINA 500GRS Paq vs DOS ANCLAS (EAN 1)"
     },
     {
       "propio": "7790072001014",
       "competencia": "7792900000206",
-      "descripcion": "SAL CELUSAL FINA CORREDIZA 500GRS Paq vs DOS ANCLAS (EAN 2)"
+      "descripcion": "CELUSAL FINA 500GRS Paq vs DOS ANCLAS (EAN 2)"
     }
   ],
 
@@ -128,10 +128,11 @@
 
   "analisis_polietileno": {
     "activo": true,
-    "sku_propio_celusal": "7790072001038",
-    "descripcion": "SAL CELUSAL vs POLIETILENO (más barato)",
-    "bins": [-999999, -80, -70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 999999],
-    "labels": ["< -80%", "-80% a -70%", "-70% a -60%", "-60% a -50%", "-50% a -40%", "-40% a -30%", "-30% a -20%", "-20% a -10%", "-10% a 0%", "0% a 10%", "10% a 20%", "> 20%"],
+    "sku_propio_celusal": "7790072001014",
+    "descripcion": "SAL CELUSAL paquetito vs POLIETILENO (más barato)",
+    "max_diferencial_pct": 200,
+    "bins": [-999999, 0, 30, 60, 90, 120, 150, 999999],
+    "labels": ["< 0%", "0% a 30%", "30% a 60%", "60% a 90%", "90% a 120%", "120% a 150%", "> 150%"],
     "label_cluster_sin_comp": "Sin polietileno",
     "output_subdir": "polietileno"
   }
